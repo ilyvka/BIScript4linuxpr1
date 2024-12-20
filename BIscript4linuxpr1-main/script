@@ -1,0 +1,90 @@
+#!/bin/bash
+
+# Функция для вывода пользователей и их домашних директорий
+list_users() {
+    awk -F: '$3 >= 1000 {print $1 "\t" $6}' /etc/passwd | sort
+}
+
+# Функция для вывода запущенных процессов
+list_processes() {
+    ps -eo pid,comm --sort=pid
+}
+
+# Функция для вывода справки
+show_help() {
+    cat <<EOF
+Использование: $0 [опции]
+
+Опции:
+  -u, --users       Вывести список пользователей и их домашние директории
+  -p, --processes   Вывести список запущенных процессов
+  -l, --log PATH    Перенаправить стандартный вывод в указанный файл
+  -e, --errors PATH Перенаправить поток ошибок в указанный файл
+  -h, --help        Показать справку и завершить работу
+EOF
+}
+
+# Проверка доступности пути для записи
+check_path() {
+    local path=$1
+    if [ -e "$path" ]; then
+        if [ ! -w "$path" ]; then
+            echo "Ошибка: Нет прав на запись в $path" >&2
+            exit 1
+        fi
+    else
+        touch "$path" 2>/dev/null || { echo "Ошибка: Не удалось создать файл $path" >&2; exit 1; }
+    fi
+}
+
+# Переменные для путей логов и ошибок
+LOG_FILE=""
+ERROR_FILE=""
+
+# Обработка аргументов
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -u|--users)
+            CMD="list_users"
+            shift
+            ;;
+        -p|--processes)
+            CMD="list_processes"
+            shift
+            ;;
+        -l|--log)
+            LOG_FILE="$2"
+            check_path "$LOG_FILE"
+            shift 2
+            ;;
+        -e|--errors)
+            ERROR_FILE="$2"
+            check_path "$ERROR_FILE"
+            shift 2
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "Ошибка: Неизвестный параметр $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Выполнение команды
+if [ -n "$CMD" ]; then
+    if [ -n "$LOG_FILE" ] && [ -n "$ERROR_FILE" ]; then
+        $CMD >>"$LOG_FILE" 2>>"$ERROR_FILE"  # Раздельное перенаправление stdout и stderr
+    elif [ -n "$LOG_FILE" ]; then
+        $CMD >>"$LOG_FILE" 2>&1  # Объединение stdout и stderr в лог-файл
+    elif [ -n "$ERROR_FILE" ]; then
+        exec 2>>"$ERROR_FILE"  # Только stderr в файл, stdout в консоль
+    else
+        $CMD  # Вывод в консоль
+    fi
+else
+    echo "Ошибка: Команда не указана. Используйте --help для справки." >&2
+    exit 1
+fi
